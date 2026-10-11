@@ -594,6 +594,9 @@ app.post('/api/bearing-analysis', async (req, res) => {
   try {
     const {
       signal,
+      image_base64,
+      crop_box,
+      input_type,
       machine_id,
       sampling_rate_hz,
       signal_unit,
@@ -604,7 +607,9 @@ app.post('/api/bearing-analysis', async (req, res) => {
       bearing_location
     } = req.body;
 
-    if (!signal || !Array.isArray(signal) || signal.length < 1024) {
+    const isImage = input_type === 'fft_graph_image' || !!image_base64;
+
+    if (!isImage && (!signal || !Array.isArray(signal) || signal.length < 1024)) {
       return res.status(400).json({
         success: false,
         error: 'INVALID_SIGNAL',
@@ -616,17 +621,25 @@ app.post('/api/bearing-analysis', async (req, res) => {
     let diagnosis = null;
     let mlError = null;
     try {
+      const payload = isImage ? {
+        input_type: 'fft_graph_image',
+        image_base64,
+        crop_box: crop_box || null,
+        source_filename: source_filename || 'fft_graph_image.png',
+        source_type: 'fft_graph_image'
+      } : {
+        signal,
+        sampling_rate_hz: parseInt(sampling_rate_hz, 10) || 48000,
+        signal_unit: signal_unit || 'g',
+        source_type: source_type || 'csv',
+        model_mode: model_mode || 'auto',
+        use_classical_ml: !!use_classical_ml
+      };
+
       const mlResponse = await fetch(`${PYTHON_ML_URL}/predict`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          signal,
-          sampling_rate_hz: parseInt(sampling_rate_hz, 10) || 48000,
-          signal_unit: signal_unit || 'g',
-          source_type: source_type || 'csv',
-          model_mode: model_mode || 'auto',
-          use_classical_ml: !!use_classical_ml
-        })
+        body: JSON.stringify(payload)
       });
 
       if (mlResponse.ok) {
@@ -693,22 +706,22 @@ app.post('/api/bearing-analysis', async (req, res) => {
           diagnosis.fault_size_mm,
           diagnosis.severity,
           diagnosis.prediction_probability,
-          diagnosis.features.rms,
-          diagnosis.features.kurtosis,
-          diagnosis.features.crest_factor,
-          diagnosis.features.shape_factor,
-          diagnosis.features.peak_to_peak,
-          diagnosis.features.skewness,
+          diagnosis.features?.rms ?? 0,
+          diagnosis.features?.kurtosis ?? 0,
+          diagnosis.features?.crest_factor ?? 0,
+          diagnosis.features?.shape_factor ?? 0,
+          diagnosis.features?.peak_to_peak ?? 0,
+          diagnosis.features?.skewness ?? 0,
           diagnosis.recommendation,
           diagnosis.urgency,
-          diagnosis.model_version.includes('CNN') ? '1D Deep CNN' : 'Random Forest',
+          diagnosis.model_used || (diagnosis.model_version.includes('CNN') ? '1D Deep CNN' : 'Random Forest'),
           diagnosis.model_version,
           diagnosis.sampling_rate_hz,
           diagnosis.signal_unit,
           diagnosis.source_type,
           diagnosis.windows_analyzed,
-          source_filename || 'uploaded_vibration.csv',
-          JSON.stringify(diagnosis.features)
+          source_filename || (isImage ? 'fft_graph_image.png' : 'uploaded_vibration.csv'),
+          JSON.stringify(diagnosis.features || {})
         ]
       );
       savedId = insertResult.insertId;
@@ -738,21 +751,21 @@ app.post('/api/bearing-analysis', async (req, res) => {
         fault_size_mm: diagnosis.fault_size_mm,
         severity: diagnosis.severity,
         prediction_probability: diagnosis.prediction_probability,
-        rms: diagnosis.features.rms,
-        kurtosis: diagnosis.features.kurtosis,
-        crest_factor: diagnosis.features.crest_factor,
-        shape_factor: diagnosis.features.shape_factor,
-        peak_to_peak: diagnosis.features.peak_to_peak,
-        skewness: diagnosis.features.skewness,
+        rms: diagnosis.features?.rms ?? 0,
+        kurtosis: diagnosis.features?.kurtosis ?? 0,
+        crest_factor: diagnosis.features?.crest_factor ?? 0,
+        shape_factor: diagnosis.features?.shape_factor ?? 0,
+        peak_to_peak: diagnosis.features?.peak_to_peak ?? 0,
+        skewness: diagnosis.features?.skewness ?? 0,
         recommendation: diagnosis.recommendation,
         urgency: diagnosis.urgency,
-        model_used: diagnosis.model_version.includes('CNN') ? '1D Deep CNN' : 'Random Forest',
+        model_used: diagnosis.model_used || (diagnosis.model_version.includes('CNN') ? '1D Deep CNN' : 'Random Forest'),
         model_version: diagnosis.model_version,
         sampling_rate_hz: diagnosis.sampling_rate_hz,
         signal_unit: diagnosis.signal_unit,
         source_type: diagnosis.source_type,
         windows_analyzed: diagnosis.windows_analyzed,
-        source_filename: source_filename || 'uploaded_vibration.csv',
+        source_filename: source_filename || (isImage ? 'fft_graph_image.png' : 'uploaded_vibration.csv'),
         created_at: new Date().toISOString()
       });
     }

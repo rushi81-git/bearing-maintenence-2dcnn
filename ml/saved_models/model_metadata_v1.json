@@ -792,7 +792,48 @@
           "1024-Point Raw Waveform"
         ]
       }
-    ]
+    ],
+    "spectrum_classifier": {
+      "model_name": "Spectrum Random Forest",
+      "model_version": "spectrum_classifier_v1",
+      "test_accuracy": 0.9836956521739131,
+      "test_macro_f1": 0.9835826380906045,
+      "val_accuracy": 0.9934782608695653,
+      "val_macro_f1": 0.9934767360299276,
+      "feature_dim": 526,
+      "classes": [
+        "Ball_007",
+        "Ball_014",
+        "Ball_021",
+        "IR_007",
+        "IR_014",
+        "IR_021",
+        "Normal",
+        "OR_007",
+        "OR_014",
+        "OR_021"
+      ]
+    },
+    "fft_2d_cnn": {
+      "model_name": "2D CNN FFT Graph Image Classifier",
+      "model_version": "cnn_fft_2d_v1",
+      "input_type": "fft_graph_image",
+      "input_shape": [
+        224,
+        224,
+        3
+      ],
+      "test_accuracy": 0.8673913043478261,
+      "test_macro_f1": 0.8825734015100787,
+      "val_accuracy": 0.8673913043478261,
+      "val_macro_f1": 0.8812005966948258,
+      "classes": [
+        "Healthy",
+        "Inner Race Fault",
+        "Outer Race Fault",
+        "Ball Fault"
+      ]
+    }
   },
   "selected_production_models": {
     "deep_learning": "cnn_cwru_1024_v1.keras",

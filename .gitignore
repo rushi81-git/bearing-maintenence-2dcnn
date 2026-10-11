@@ -4,5 +4,11 @@ build/
 *.log
 CWRU_dataset/
 ml/data/
+ml/data/fft_images/
+ml/data/*.npz
+*.png
+*.jpg
 scratch/
 user_uploaded.csv
+__pycache__/
+*.pyc

@@ -437,5 +437,325 @@ def load_and_preprocess_cwru_1024(npz_path: str = None, augment_train: bool = Tr
     }
 
 
+# ─── SPECTRUM PREPROCESSING & CANONICAL PIPELINE ──────────────────────────────
+CANONICAL_SPECTRUM_BINS = 512
+CANONICAL_SPECTRUM_MAX_FREQ = 6000.0
+CANONICAL_SPECTRUM_FREQS = np.linspace(0.0, CANONICAL_SPECTRUM_MAX_FREQ, CANONICAL_SPECTRUM_BINS)
+
+CANONICAL_SPECTRAL_FEATURES = [
+    "spectral_centroid",
+    "spectral_spread",
+    "spectral_crest_factor",
+    "spectral_rolloff_85",
+    "spectral_rolloff_95",
+    "peak_frequency",
+    "peak_amplitude",
+    "band_energy_0_500",
+    "band_energy_500_1500",
+    "band_energy_1500_3000",
+    "band_energy_3000_6000",
+    "total_spectral_energy",
+    "mean_spectral_amplitude",
+    "std_spectral_amplitude"
+]
+
+
+def compute_fft_spectrum(signal: np.ndarray, sampling_rate_hz: int = 48000) -> tuple:
+    """
+    Documented, consistent FFT pipeline for raw vibration windows:
+      1. Detrend: x - mean(x) (DC bias removal)
+      2. Window: Periodic Hanning window w[n] = 0.5 * (1 - cos(2*pi*n/N))
+      3. Real FFT: rfft for positive frequencies
+      4. Single-sided peak amplitude scaling: A[k] = 2.0 / sum(w) * |X[k]|, DC scaled by 1.0 / sum(w)
+      5. Returns (freqs_hz, amplitudes_g_peak)
+    """
+    x = np.asarray(signal, dtype=np.float64).ravel()
+    n = len(x)
+    if n < 16:
+        raise ValueError(f"Signal too short for FFT ({n} samples; minimum 16 required).")
+
+    x_detrend = x - np.mean(x)
+    win = np.hanning(n)
+    win_sum = float(np.sum(win))
+    if win_sum < EPSILON:
+        win_sum = 1.0
+    win_scale = 2.0 / win_sum
+
+    fft_vals = np.fft.rfft(x_detrend * win)
+    amplitudes = np.abs(fft_vals) * win_scale
+    amplitudes[0] /= 2.0  # DC bin is not doubled
+
+    freqs = np.fft.rfftfreq(n, d=1.0 / float(sampling_rate_hz))
+    return freqs, amplitudes
+
+
+def extract_spectral_features(freqs: np.ndarray, amplitudes: np.ndarray) -> dict:
+    """
+    Extract 14 canonical spectral features from frequency-amplitude spectrum.
+    Adheres strictly to vibration condition monitoring standards.
+    """
+    f = np.asarray(freqs, dtype=np.float64)
+    a = np.asarray(amplitudes, dtype=np.float64)
+
+    total_amp = float(np.sum(a)) + EPSILON
+    power = a ** 2
+    total_energy = float(np.sum(power)) + EPSILON
+
+    # Spectral centroid (spectral center of gravity in Hz)
+    centroid = float(np.sum(f * a) / total_amp)
+
+    # Spectral spread (spectral bandwidth / standard deviation around centroid in Hz)
+    spread = float(np.sqrt(np.sum(((f - centroid) ** 2) * a) / total_amp))
+
+    # Spectral crest factor (peak amplitude relative to spectral RMS)
+    spec_rms = float(np.sqrt(np.mean(power))) + EPSILON
+    peak_amp = float(np.max(a))
+    crest_factor = float(peak_amp / spec_rms)
+
+    # Dominant peak frequency
+    peak_idx = int(np.argmax(a))
+    peak_freq = float(f[peak_idx])
+
+    # Spectral roll-off (frequencies below which 85% and 95% of energy is concentrated)
+    cum_power = np.cumsum(power)
+    idx_85 = int(np.searchsorted(cum_power, 0.85 * total_energy))
+    idx_95 = int(np.searchsorted(cum_power, 0.95 * total_energy))
+    rolloff_85 = float(f[min(idx_85, len(f) - 1)])
+    rolloff_95 = float(f[min(idx_95, len(f) - 1)])
+
+    # Energy in key diagnostic sub-bands
+    e_0_500 = float(np.sum(power[f <= 500.0]) / total_energy)
+    e_500_1500 = float(np.sum(power[(f > 500.0) & (f <= 1500.0)]) / total_energy)
+    e_1500_3000 = float(np.sum(power[(f > 1500.0) & (f <= 3000.0)]) / total_energy)
+    e_3000_6000 = float(np.sum(power[(f > 3000.0) & (f <= 6000.0)]) / total_energy)
+
+    mean_amp = float(np.mean(a))
+    std_amp = float(np.std(a))
+
+    return {
+        "spectral_centroid": centroid,
+        "spectral_spread": spread,
+        "spectral_crest_factor": crest_factor,
+        "spectral_rolloff_85": rolloff_85,
+        "spectral_rolloff_95": rolloff_95,
+        "peak_frequency": peak_freq,
+        "peak_amplitude": peak_amp,
+        "band_energy_0_500": e_0_500,
+        "band_energy_500_1500": e_500_1500,
+        "band_energy_1500_3000": e_1500_3000,
+        "band_energy_3000_6000": e_3000_6000,
+        "total_spectral_energy": total_energy,
+        "mean_spectral_amplitude": mean_amp,
+        "std_spectral_amplitude": std_amp
+    }
+
+
+def validate_spectrum_input(
+    frequencies: np.ndarray,
+    amplitudes: np.ndarray,
+    unit: str = "g, peak",
+    spectrum_type: str = "amplitude"
+) -> dict:
+    """
+    Validate numeric data, frequency order and spacing, units, spectrum type,
+    and frequency range. Gives clear errors for unsupported or ambiguous exports.
+    """
+    f = np.asarray(frequencies, dtype=np.float64).ravel()
+    a = np.asarray(amplitudes, dtype=np.float64).ravel()
+
+    if len(f) == 0 or len(a) == 0:
+        raise ValueError("Spectrum data is empty. Both frequency and amplitude columns are required.")
+
+    if len(f) != len(a):
+        raise ValueError(
+            f"Frequency and amplitude lengths mismatch: {len(f)} frequencies vs {len(a)} amplitudes."
+        )
+
+    if len(f) < 16:
+        raise ValueError(f"Spectrum has too few frequency bins ({len(f)}; minimum 16 required).")
+
+    if not np.all(np.isfinite(f)):
+        raise ValueError("Frequency array contains NaN or Infinite values.")
+
+    if not np.all(np.isfinite(a)):
+        raise ValueError("Amplitude array contains NaN or Infinite values.")
+
+    # Frequency order check: strictly monotonically increasing
+    diffs = np.diff(f)
+    if np.any(diffs <= 0):
+        invalid_idx = np.where(diffs <= 0)[0][0]
+        raise ValueError(
+            f"Frequencies must be strictly monotonically increasing. "
+            f"Violation at index {invalid_idx}: {f[invalid_idx]} >= {f[invalid_idx + 1]}."
+        )
+
+    if f[0] < 0:
+        raise ValueError(f"Frequencies must be non-negative. Minimum frequency is {f[0]} Hz.")
+
+    # Amplitude check: must be non-negative
+    if np.any(a < -1e-6):
+        neg_count = np.sum(a < -1e-6)
+        raise ValueError(
+            f"Amplitudes must be non-negative (received {neg_count} negative values, min: {np.min(a):.4f}). "
+            "A negative signal indicates a raw time-domain waveform or corrupt data, not a magnitude spectrum."
+        )
+
+    # Frequency spacing check: uniform within tolerance
+    median_step = float(np.median(diffs))
+    if median_step <= 0:
+        raise ValueError("Invalid frequency step: step size must be positive.")
+    step_variation = np.max(np.abs(diffs - median_step))
+    if step_variation > 0.10 * median_step and len(diffs) > 10:
+        raise ValueError(
+            f"Non-uniform frequency spacing detected. Frequency step varies by up to "
+            f"{step_variation:.4f} Hz from median step {median_step:.4f} Hz (>10% variation)."
+        )
+
+    # Unit and spectrum type validation
+    u_clean = str(unit).lower().strip()
+    s_type = str(spectrum_type).lower().strip()
+
+    if "psd" in u_clean or "g^2" in u_clean or "g2" in u_clean or "psd" in s_type or "power" in s_type:
+        raise ValueError(
+            "Power Spectral Density (PSD / g²/Hz) is not currently supported. "
+            "Please export linear acceleration amplitude (g, peak or g, RMS)."
+        )
+
+    if "db" in u_clean or "log" in u_clean or "db" in s_type:
+        raise ValueError(
+            "Logarithmic (dB) scale spectrum is not supported. Please export linear acceleration amplitude."
+        )
+
+    # Frequency range validation
+    max_f = float(f[-1])
+    min_f = float(f[0])
+
+    if min_f > 100.0:
+        raise ValueError(
+            f"Spectrum starting frequency is {min_f:.1f} Hz. "
+            "Diagnosis requires low-frequency coverage starting near 0 Hz (≤100 Hz) to inspect 1X/2X shaft harmonics."
+        )
+
+    if max_f < 6000.0:
+        raise ValueError(
+            f"Spectrum maximum frequency is {max_f:.1f} Hz, which is below the required 6,000 Hz diagnostic bandwidth. "
+            "High-frequency bearing defect impact and resonance bands cannot be evaluated. "
+            "Please provide a spectrum export with at least 0–6,000 Hz coverage (minimum 12 kHz sampling rate)."
+        )
+
+    return {
+        "valid": True,
+        "bin_count": len(f),
+        "min_freq_hz": min_f,
+        "max_freq_hz": max_f,
+        "frequency_step_hz": median_step,
+        "unit": unit,
+        "spectrum_type": spectrum_type,
+        "peak_amplitude": float(np.max(a)),
+        "mean_amplitude": float(np.mean(a))
+    }
+
+
+def transform_spectrum_to_canonical(freqs: np.ndarray, amplitudes: np.ndarray) -> np.ndarray:
+    """
+    Interpolates linear amplitude spectrum onto the canonical frequency grid
+    CANONICAL_SPECTRUM_FREQS (512 bins, 0 to 6000 Hz) and appends 14 canonical
+    spectral features -> returns (526,) feature vector.
+    """
+    f = np.asarray(freqs, dtype=np.float64).ravel()
+    a = np.asarray(amplitudes, dtype=np.float64).ravel()
+
+    # Interpolate to canonical 512-bin grid
+    canonical_bins = np.interp(CANONICAL_SPECTRUM_FREQS, f, a)
+
+    # Extract canonical spectral features
+    features_dict = extract_spectral_features(CANONICAL_SPECTRUM_FREQS, canonical_bins)
+    feat_values = np.array([features_dict[col] for col in CANONICAL_SPECTRAL_FEATURES], dtype=np.float64)
+
+    return np.concatenate([canonical_bins, feat_values])
+
+
+def load_and_preprocess_cwru_spectrum(npz_path: str = None, verbose: bool = True):
+    """
+    Generates training spectra from CWRU 1024-point raw recordings using the documented
+    FFT pipeline, applies identical leakage-safe 70/10/20 block splitting, and prepares
+    canonical spectrum datasets for spectrum classifier training.
+    """
+    if npz_path is None:
+        npz_path = NPZ_PATH
+    if not os.path.exists(npz_path):
+        if os.path.exists(FALLBACK_NPZ):
+            npz_path = FALLBACK_NPZ
+        else:
+            raise FileNotFoundError(f"CWRU dataset not found at {npz_path}")
+
+    d = np.load(npz_path)
+    signals = d['data'].reshape(d['data'].shape[0], -1).astype(np.float64)
+    labels = np.array([normalize_class_name(lbl) for lbl in d['labels']])
+
+    # Leakage-safe block split: 70% Train, 10% Val, 20% Test
+    train_indices, val_indices, test_indices = [], [], []
+    for cls in np.unique(labels):
+        cls_idx = np.where(labels == cls)[0]
+        n = len(cls_idx)
+        n_train = int(n * TRAIN_RATIO)
+        n_val = int(n * VAL_RATIO)
+        train_indices.extend(cls_idx[:n_train])
+        val_indices.extend(cls_idx[n_train:n_train + n_val])
+        test_indices.extend(cls_idx[n_train + n_val:])
+
+    train_indices = np.array(train_indices)
+    val_indices = np.array(val_indices)
+    test_indices = np.array(test_indices)
+
+    sig_train = signals[train_indices]
+    sig_val = signals[val_indices]
+    sig_test = signals[test_indices]
+
+    y_train = labels[train_indices]
+    y_val = labels[val_indices]
+    y_test = labels[test_indices]
+
+    label_encoder = LabelEncoder()
+    label_encoder.fit(CWRU_CLASSES)
+    y_train_enc = label_encoder.transform(y_train)
+    y_val_enc = label_encoder.transform(y_val)
+    y_test_enc = label_encoder.transform(y_test)
+
+    if verbose:
+        print("=" * 60)
+        print("EXTRACTING SPECTRUM DATASET (CANONICAL 512 BINS + 14 SPECTRAL FEATURES)")
+        print(f"Train samples: {len(sig_train)}, Val: {len(sig_val)}, Test: {len(sig_test)}")
+
+    def batch_transform(sig_matrix):
+        out = np.zeros((len(sig_matrix), CANONICAL_SPECTRUM_BINS + len(CANONICAL_SPECTRAL_FEATURES)), dtype=np.float64)
+        for i, sig in enumerate(sig_matrix):
+            freqs, amps = compute_fft_spectrum(sig, sampling_rate_hz=48000)
+            out[i] = transform_spectrum_to_canonical(freqs, amps)
+        return out
+
+    X_train_spec = batch_transform(sig_train)
+    X_val_spec = batch_transform(sig_val)
+    X_test_spec = batch_transform(sig_test)
+
+    if verbose:
+        print(f"Feature vector shape: {X_train_spec.shape}")
+        print("=" * 60)
+
+    return {
+        'X_train': X_train_spec,
+        'X_val': X_val_spec,
+        'X_test': X_test_spec,
+        'y_train': y_train_enc,
+        'y_val': y_val_enc,
+        'y_test': y_test_enc,
+        'y_train_labels': y_train,
+        'y_val_labels': y_val,
+        'y_test_labels': y_test,
+        'label_encoder': label_encoder
+    }
+
+
 if __name__ == '__main__':
     load_and_preprocess_cwru_1024(verbose=True)
+

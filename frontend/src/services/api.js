@@ -69,6 +69,9 @@ export async function createScheduleEntry(entryData) {
 
 export async function analyzeBearingSignal({
   signal,
+  image_base64,
+  crop_box,
+  input_type,
   machine_id,
   sampling_rate_hz = 48000,
   signal_unit = 'g',
@@ -83,6 +86,9 @@ export async function analyzeBearingSignal({
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       signal,
+      image_base64,
+      crop_box,
+      input_type,
       machine_id,
       sampling_rate_hz,
       signal_unit,

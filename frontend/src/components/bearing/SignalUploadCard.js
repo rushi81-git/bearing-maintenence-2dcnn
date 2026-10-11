@@ -8,7 +8,9 @@ import {
   Trash2,
   Sparkles,
   Sliders,
-  FileText
+  FileText,
+  Image as ImageIcon,
+  Crop
 } from 'lucide-react';
 import { SignalSynthesizerCard } from './SignalSynthesizerCard';
 
@@ -26,11 +28,19 @@ export function SignalUploadCard({
   onFileUpload,
   onClearSignal,
   onOpenDemoDrawer,
-  onSynthesizeSignal
+  onSynthesizeSignal,
+  // FFT Graph Image props
+  activeImageBase64 = null,
+  onImageUpload = null,
+  onClearImage = null,
+  cropBox = null,
+  onCropBoxChange = null
 }) {
-  const [activeMode, setActiveMode] = useState('upload'); // 'upload' | 'synthesizer'
+  const [activeMode, setActiveMode] = useState(sourceType === 'fft_graph_image' ? 'fft_image' : 'upload'); // 'upload' | 'synthesizer' | 'fft_image'
   const [isDragging, setIsDragging] = useState(false);
+  const [showCropControls, setShowCropControls] = useState(false);
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -48,15 +58,37 @@ export function SignalUploadCard({
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
       const file = files[0];
-      if (fileInputRef.current) {
+      if (activeMode === 'fft_image') {
+        handleImageFile(file);
+      } else if (fileInputRef.current) {
         onFileUpload({ target: { files: [file] } });
       }
     }
   };
 
+  const handleImageFile = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload a valid PNG or JPG image file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const b64 = evt.target?.result;
+      if (onImageUpload) {
+        onImageUpload({
+          imageBase64: b64,
+          filename: file.name
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const isSignalValid = sampleCount >= 1024;
   const isDemo = sourceType === 'demo';
   const isSimulated = sourceType === 'simulated';
+  const isImageMode = activeMode === 'fft_image';
 
   return (
     <div
@@ -79,7 +111,7 @@ export function SignalUploadCard({
             fontFamily: 'var(--font-mono)'
           }}
         >
-          2. Vibration Signal Ingestion
+          2. Signal / FFT Ingestion
         </label>
 
         {/* Try Demo Drawer Button */}
@@ -100,23 +132,24 @@ export function SignalUploadCard({
         </button>
       </div>
 
-      {/* Segmented Mode Picker: File Upload vs Kinematic Synthesizer */}
+      {/* Segmented Mode Picker: File Upload vs Kinematic Synthesizer vs FFT Graph Image */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: '1fr 1fr 1.2fr',
           background: 'var(--bg-surface-sunken)',
           padding: 3,
           borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--border-subtle)'
+          border: '1px solid var(--border-subtle)',
+          gap: 2
         }}
       >
         <button
           type="button"
           onClick={() => setActiveMode('upload')}
           style={{
-            padding: '6px 10px',
-            fontSize: 11,
+            padding: '6px 6px',
+            fontSize: 10,
             fontWeight: 600,
             fontFamily: 'var(--font-sans)',
             borderRadius: 'var(--radius-sm)',
@@ -128,19 +161,19 @@ export function SignalUploadCard({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 6
+            gap: 4
           }}
         >
-          <UploadCloud size={13} />
-          <span>Upload CSV File</span>
+          <UploadCloud size={12} />
+          <span>Upload CSV</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveMode('synthesizer')}
           style={{
-            padding: '6px 10px',
-            fontSize: 11,
+            padding: '6px 6px',
+            fontSize: 10,
             fontWeight: 600,
             fontFamily: 'var(--font-sans)',
             borderRadius: 'var(--radius-sm)',
@@ -152,11 +185,37 @@ export function SignalUploadCard({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 6
+            gap: 4
           }}
         >
-          <Sliders size={13} />
-          <span>Fault Synthesizer</span>
+          <Sliders size={12} />
+          <span>Synthesizer</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMode('fft_image')}
+          style={{
+            padding: '6px 6px',
+            fontSize: 10,
+            fontWeight: 700,
+            fontFamily: 'var(--font-sans)',
+            borderRadius: 'var(--radius-sm)',
+            border: 'none',
+            background: activeMode === 'fft_image' ? 'var(--bg-surface-raised)' : 'transparent',
+            color: activeMode === 'fft_image' ? 'var(--accent-primary)' : 'var(--text-muted)',
+            boxShadow: activeMode === 'fft_image' ? 'var(--shadow-xs)' : 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4
+          }}
+          title="FFT Graph Image (2D CNN) — Experimental"
+        >
+          <ImageIcon size={12} />
+          <span>FFT Graph Image</span>
+          <span style={{ fontSize: 8, padding: '1px 3px', borderRadius: 4, background: 'rgba(99,102,241,0.15)', color: 'var(--accent-primary)' }}>EXP</span>
         </button>
       </div>
 
@@ -425,6 +484,240 @@ export function SignalUploadCard({
       {/* Mode 2: Kinematic Synthesizer */}
       {activeMode === 'synthesizer' && (
         <SignalSynthesizerCard onSynthesizeSignal={onSynthesizeSignal} />
+      )}
+
+      {/* Mode 3: FFT Graph Image (2D CNN) — Experimental */}
+      {activeMode === 'fft_image' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {!activeImageBase64 ? (
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => imageInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${isDragging ? 'var(--accent-primary)' : 'var(--border-strong)'}`,
+                borderRadius: 'var(--radius-lg)',
+                padding: '24px 16px',
+                textAlign: 'center',
+                background: isDragging ? 'var(--accent-subtle)' : 'var(--bg-surface-sunken)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                onChange={(e) => handleImageFile(e.target.files?.[0])}
+                style={{ display: 'none' }}
+              />
+
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 'var(--radius-full)',
+                  background: 'rgba(99, 102, 241, 0.12)',
+                  color: 'var(--accent-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 10
+                }}
+              >
+                <ImageIcon size={22} />
+              </div>
+
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {isDragging ? 'Drop FFT Graph Image Here' : 'Click or Drag FFT Graph Image (.png, .jpg)'}
+              </div>
+
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, maxWidth: 280 }}>
+                Upload an FFT vibration spectrum line graph image (0–6,000 Hz, linear acceleration in g).
+              </div>
+
+              <div
+                style={{
+                  marginTop: 10,
+                  fontSize: 10,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--accent-primary)',
+                  background: 'var(--bg-surface)',
+                  padding: '3px 8px',
+                  borderRadius: 'var(--radius-full)',
+                  border: '1px solid var(--border-subtle)'
+                }}
+              >
+                2D CNN · 4-Class Classification (Healthy, IR, OR, Ball)
+              </div>
+            </div>
+          ) : (
+            /* Uploaded Image Preview & Details Card */
+            <div
+              style={{
+                background: 'var(--bg-surface-raised)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <img
+                    src={activeImageBase64}
+                    alt="FFT Graph Preview"
+                    style={{
+                      width: 50,
+                      height: 50,
+                      objectFit: 'cover',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      background: '#fff'
+                    }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: 'var(--text-primary)',
+                        fontFamily: 'var(--font-mono)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}
+                    >
+                      {sourceFilename || 'fft_graph_image.png'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--status-healthy)', fontWeight: 600 }}>
+                      FFT Graph Image Ready for 2D CNN
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowCropControls(prev => !prev)}
+                    className="btn btn-outline"
+                    style={{ padding: '4px 8px', fontSize: 11 }}
+                    title="Manual Graph Area Crop"
+                  >
+                    <Crop size={12} />
+                    Crop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="btn btn-outline"
+                    style={{ padding: '4px 8px', fontSize: 11 }}
+                  >
+                    <RefreshCw size={11} />
+                    Change
+                  </button>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                    onChange={(e) => handleImageFile(e.target.files?.[0])}
+                    style={{ display: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={onClearImage}
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 6px', color: 'var(--status-severe)' }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Manual Graph Area Crop Controls */}
+              {showCropControls && (
+                <div
+                  style={{
+                    background: 'var(--bg-surface-sunken)',
+                    padding: '10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Crop size={12} />
+                    <span>Manual Graph Area Bounding Box (px):</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {['X1', 'Y1', 'X2', 'Y2'].map((coord, idx) => (
+                      <div key={coord}>
+                        <label style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{coord}</label>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={cropBox ? cropBox[idx] : ''}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            const newBox = cropBox ? [...cropBox] : [0, 0, 500, 500];
+                            newBox[idx] = isNaN(val) ? 0 : val;
+                            if (onCropBoxChange) onCropBoxChange(newBox);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            fontSize: 11,
+                            fontFamily: 'var(--font-mono)',
+                            background: 'var(--bg-surface)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 4,
+                            color: 'var(--text-primary)'
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => onCropBoxChange && onCropBoxChange(null)}
+                      className="btn btn-ghost"
+                      style={{ fontSize: 10, padding: '2px 6px' }}
+                    >
+                      Reset Full Image
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Specification Notice */}
+              <div
+                style={{
+                  background: 'rgba(99, 102, 241, 0.06)',
+                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '8px 10px',
+                  fontSize: 10,
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.4
+                }}
+              >
+                <strong style={{ color: 'var(--accent-primary)' }}>Required Analyzer Settings:</strong> Span 0–6,000 Hz, linear acceleration amplitude in g, Hann window.
+                <br />
+                <em>Note: Model predicts current fault state, not Remaining Useful Life (RUL).</em>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Sampling Rate & Unit Tuning Controls */}

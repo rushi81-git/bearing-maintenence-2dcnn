@@ -1,0 +1,148 @@
+{
+  "validation": {
+    "accuracy": 0.8674,
+    "macro_f1": 0.8812
+  },
+  "test": {
+    "accuracy": 0.8674,
+    "macro_precision": 0.9079,
+    "macro_recall": 0.8895,
+    "macro_f1": 0.8826
+  },
+  "confusion_matrix": {
+    "classes": [
+      "Healthy",
+      "Inner Race Fault",
+      "Outer Race Fault",
+      "Ball Fault"
+    ],
+    "matrix": [
+      [
+        92,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        273,
+        2,
+        1
+      ],
+      [
+        0,
+        9,
+        164,
+        103
+      ],
+      [
+        2,
+        2,
+        3,
+        269
+      ]
+    ]
+  },
+  "classification_report": {
+    "Healthy": {
+      "precision": 0.9787234042553191,
+      "recall": 1.0,
+      "f1-score": 0.989247311827957,
+      "support": 92.0
+    },
+    "Inner Race Fault": {
+      "precision": 0.9612676056338029,
+      "recall": 0.9891304347826086,
+      "f1-score": 0.975,
+      "support": 276.0
+    },
+    "Outer Race Fault": {
+      "precision": 0.9704142011834319,
+      "recall": 0.5942028985507246,
+      "f1-score": 0.7370786516853932,
+      "support": 276.0
+    },
+    "Ball Fault": {
+      "precision": 0.7211796246648794,
+      "recall": 0.9746376811594203,
+      "f1-score": 0.8289676425269645,
+      "support": 276.0
+    },
+    "accuracy": 0.8673913043478261,
+    "macro avg": {
+      "precision": 0.9078962089343583,
+      "recall": 0.8894927536231884,
+      "f1-score": 0.8825734015100787,
+      "support": 920.0
+    },
+    "weighted avg": {
+      "precision": 0.8937307698701663,
+      "recall": 0.8673913043478261,
+      "f1-score": 0.8612386194465029,
+      "support": 920.0
+    }
+  },
+  "misclassifications_sample": [
+    {
+      "test_index": 108,
+      "true_class": "Ball Fault",
+      "predicted_class": "Outer Race Fault",
+      "confidence": 0.45337915420532227
+    },
+    {
+      "test_index": 121,
+      "true_class": "Ball Fault",
+      "predicted_class": "Healthy",
+      "confidence": 0.5366843938827515
+    },
+    {
+      "test_index": 162,
+      "true_class": "Ball Fault",
+      "predicted_class": "Outer Race Fault",
+      "confidence": 0.5604153275489807
+    },
+    {
+      "test_index": 174,
+      "true_class": "Ball Fault",
+      "predicted_class": "Outer Race Fault",
+      "confidence": 0.5625618100166321
+    },
+    {
+      "test_index": 181,
+      "true_class": "Ball Fault",
+      "predicted_class": "Healthy",
+      "confidence": 0.9791380763053894
+    },
+    {
+      "test_index": 253,
+      "true_class": "Ball Fault",
+      "predicted_class": "Inner Race Fault",
+      "confidence": 0.3712920844554901
+    },
+    {
+      "test_index": 255,
+      "true_class": "Ball Fault",
+      "predicted_class": "Inner Race Fault",
+      "confidence": 0.6973690390586853
+    },
+    {
+      "test_index": 408,
+      "true_class": "Inner Race Fault",
+      "predicted_class": "Ball Fault",
+      "confidence": 0.46679937839508057
+    },
+    {
+      "test_index": 465,
+      "true_class": "Inner Race Fault",
+      "predicted_class": "Outer Race Fault",
+      "confidence": 0.8834596276283264
+    },
+    {
+      "test_index": 473,
+      "true_class": "Inner Race Fault",
+      "predicted_class": "Outer Race Fault",
+      "confidence": 0.58391273021698
+    }
+  ],
+  "total_misclassified": 122
+}

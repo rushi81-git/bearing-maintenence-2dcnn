@@ -1,0 +1,278 @@
+{
+  "dataset_source": "CWRU 48k Drive End Accelerometer, 1 HP Load (1772 RPM)",
+  "window_length": 1024,
+  "sampling_rate_hz": 48000,
+  "train_ratio": 0.7,
+  "val_ratio": 0.1,
+  "test_ratio": 0.2,
+  "random_seed": 42,
+  "total_samples": 4600,
+  "split_counts": {
+    "train": 3220,
+    "val": 460,
+    "test": 920
+  },
+  "class_breakdown": {
+    "train": {
+      "Healthy": 322,
+      "Inner Race Fault": 966,
+      "Outer Race Fault": 966,
+      "Ball Fault": 966
+    },
+    "val": {
+      "Healthy": 46,
+      "Inner Race Fault": 138,
+      "Outer Race Fault": 138,
+      "Ball Fault": 138
+    },
+    "test": {
+      "Healthy": 92,
+      "Inner Race Fault": 276,
+      "Outer Race Fault": 276,
+      "Ball Fault": 276
+    }
+  },
+  "recordings": {
+    "Ball_007": {
+      "mapped_4class": "Ball Fault",
+      "total_samples": 460,
+      "train_indices": [
+        0,
+        321
+      ],
+      "val_indices": [
+        322,
+        367
+      ],
+      "test_indices": [
+        368,
+        459
+      ],
+      "metadata": {
+        "rec_id": "122",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.007\""
+      }
+    },
+    "Ball_014": {
+      "mapped_4class": "Ball Fault",
+      "total_samples": 460,
+      "train_indices": [
+        460,
+        781
+      ],
+      "val_indices": [
+        782,
+        827
+      ],
+      "test_indices": [
+        828,
+        919
+      ],
+      "metadata": {
+        "rec_id": "123",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.014\""
+      }
+    },
+    "Ball_021": {
+      "mapped_4class": "Ball Fault",
+      "total_samples": 460,
+      "train_indices": [
+        920,
+        1241
+      ],
+      "val_indices": [
+        1242,
+        1287
+      ],
+      "test_indices": [
+        1288,
+        1379
+      ],
+      "metadata": {
+        "rec_id": "124",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.021\""
+      }
+    },
+    "IR_007": {
+      "mapped_4class": "Inner Race Fault",
+      "total_samples": 460,
+      "train_indices": [
+        1380,
+        1701
+      ],
+      "val_indices": [
+        1702,
+        1747
+      ],
+      "test_indices": [
+        1748,
+        1839
+      ],
+      "metadata": {
+        "rec_id": "109",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.007\""
+      }
+    },
+    "IR_014": {
+      "mapped_4class": "Inner Race Fault",
+      "total_samples": 460,
+      "train_indices": [
+        1840,
+        2161
+      ],
+      "val_indices": [
+        2162,
+        2207
+      ],
+      "test_indices": [
+        2208,
+        2299
+      ],
+      "metadata": {
+        "rec_id": "110",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.014\""
+      }
+    },
+    "IR_021": {
+      "mapped_4class": "Inner Race Fault",
+      "total_samples": 460,
+      "train_indices": [
+        2300,
+        2621
+      ],
+      "val_indices": [
+        2622,
+        2667
+      ],
+      "test_indices": [
+        2668,
+        2759
+      ],
+      "metadata": {
+        "rec_id": "111",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.021\""
+      }
+    },
+    "Normal": {
+      "mapped_4class": "Healthy",
+      "total_samples": 460,
+      "train_indices": [
+        4140,
+        4461
+      ],
+      "val_indices": [
+        4462,
+        4507
+      ],
+      "test_indices": [
+        4508,
+        4599
+      ],
+      "metadata": {
+        "rec_id": "098",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.000\""
+      }
+    },
+    "OR_007": {
+      "mapped_4class": "Outer Race Fault",
+      "total_samples": 460,
+      "train_indices": [
+        2760,
+        3081
+      ],
+      "val_indices": [
+        3082,
+        3127
+      ],
+      "test_indices": [
+        3128,
+        3219
+      ],
+      "metadata": {
+        "rec_id": "135",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.007\""
+      }
+    },
+    "OR_014": {
+      "mapped_4class": "Outer Race Fault",
+      "total_samples": 460,
+      "train_indices": [
+        3220,
+        3541
+      ],
+      "val_indices": [
+        3542,
+        3587
+      ],
+      "test_indices": [
+        3588,
+        3679
+      ],
+      "metadata": {
+        "rec_id": "136",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.014\""
+      }
+    },
+    "OR_021": {
+      "mapped_4class": "Outer Race Fault",
+      "total_samples": 460,
+      "train_indices": [
+        3680,
+        4001
+      ],
+      "val_indices": [
+        4002,
+        4047
+      ],
+      "test_indices": [
+        4048,
+        4139
+      ],
+      "metadata": {
+        "rec_id": "137",
+        "channel": "DE",
+        "sampling_rate": 48000,
+        "hp": 1,
+        "rpm": 1772,
+        "fault_size": "0.021\""
+      }
+    }
+  },
+  "split_limitation_note": "Each continuous CWRU recording was partitioned into strictly isolated temporal blocks (70% train, 10% val, 20% test). Because the CWRU 48k 1 HP benchmark contains a single continuous baseline recording for Healthy and single recordings per defect severity, a pure across-recording split would leave Healthy completely absent from either training or testing. Temporal block partitioning prevents window overlap and simulates evaluating a continuous machine monitoring run."
+}

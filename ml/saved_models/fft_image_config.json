@@ -1,0 +1,67 @@
+{
+  "model_name": "2D CNN FFT Graph Image Classifier",
+  "model_version": "cnn_fft_2d_v1",
+  "framework": "TensorFlow / Keras",
+  "classes": [
+    "Healthy",
+    "Inner Race Fault",
+    "Outer Race Fault",
+    "Ball Fault"
+  ],
+  "class_to_idx": {
+    "Healthy": 0,
+    "Inner Race Fault": 1,
+    "Outer Race Fault": 2,
+    "Ball Fault": 3
+  },
+  "input_shape": [
+    224,
+    224,
+    3
+  ],
+  "image_size": [
+    224,
+    224
+  ],
+  "frequency_range_hz": [
+    0.0,
+    6000.0
+  ],
+  "max_amplitude_g": 1.5,
+  "sampling_rate_hz": 48000,
+  "window_length": 1024,
+  "frequency_resolution_hz": 46.875,
+  "signal_unit": "g (linear acceleration peak vs Hz)",
+  "required_analyzer_settings": {
+    "spectrum_type": "linear magnitude / peak amplitude (g)",
+    "frequency_span": "0 to 6000 Hz (minimum 12 kHz sampling)",
+    "window_function": "Hanning / Hann",
+    "averaging": "RMS / Peak-Hold"
+  },
+  "training_summary": {
+    "epochs_trained": 15,
+    "batch_size": 32,
+    "duration_seconds": 524.28,
+    "train_samples": 3220,
+    "val_samples": 460,
+    "test_samples": 920
+  },
+  "validation_metrics": {
+    "accuracy": 0.8674,
+    "macro_f1": 0.8812
+  },
+  "test_metrics": {
+    "accuracy": 0.8674,
+    "macro_precision": 0.9079,
+    "macro_recall": 0.8895,
+    "macro_f1": 0.8826
+  },
+  "disclaimers": [
+    "ACADEMIC BENCHMARK NOTICE: Model was trained strictly on CWRU laboratory test-rig vibration spectra.",
+    "High test accuracy on synthetic CWRU FFT graphs DOES NOT establish equivalent reliability on real-world analyzer screenshots.",
+    "Screenshots from field vibration analyzers may contain differing aspect ratios, axes, fonts, noise floors, machine speeds, or harmonics.",
+    "Predicted softmax probabilities reflect internal closed-set model activations and are NOT guaranteed reliability or probability of failure estimates.",
+    "This model classifies CURRENT bearing condition (presence and location of localized defect) and does NOT predict Remaining Useful Life (RUL)."
+  ],
+  "trained_at": "2026-10-02T23:50:44.195992"
+}

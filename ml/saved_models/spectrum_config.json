@@ -1,0 +1,51 @@
+{
+  "model_name": "Random Forest Spectrum Classifier",
+  "model_version": "spectrum_classifier_v1",
+  "pipeline": "Detrend + Periodic Hanning Window + Single-Sided Peak FFT Amplitude (g)",
+  "canonical_bins": 512,
+  "canonical_max_freq_hz": 6000.0,
+  "spectral_feature_names": [
+    "spectral_centroid",
+    "spectral_spread",
+    "spectral_crest_factor",
+    "spectral_rolloff_85",
+    "spectral_rolloff_95",
+    "peak_frequency",
+    "peak_amplitude",
+    "band_energy_0_500",
+    "band_energy_500_1500",
+    "band_energy_1500_3000",
+    "band_energy_3000_6000",
+    "total_spectral_energy",
+    "mean_spectral_amplitude",
+    "std_spectral_amplitude"
+  ],
+  "total_input_features": 526,
+  "classes": [
+    "Ball_007",
+    "Ball_014",
+    "Ball_021",
+    "IR_007",
+    "IR_014",
+    "IR_021",
+    "Normal",
+    "OR_007",
+    "OR_014",
+    "OR_021"
+  ],
+  "validation_metrics": {
+    "samples": 460,
+    "accuracy": 0.9934782608695653,
+    "macro_f1": 0.9934767360299276,
+    "weighted_f1": 0.9934767360299275
+  },
+  "test_metrics": {
+    "samples": 920,
+    "accuracy": 0.9836956521739131,
+    "macro_precision": 0.9837337658158603,
+    "macro_recall": 0.9836956521739131,
+    "macro_f1": 0.9835826380906045,
+    "weighted_f1": 0.9835826380906046
+  },
+  "trained_at": "2026-09-25T13:11:04.382957"
+}

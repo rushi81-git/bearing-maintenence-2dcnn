@@ -176,40 +176,105 @@ export function parseVibrationCSV(text) {
     }
   });
 
-  // Check if CSV contains metadata columns (e.g. Sampling_Rate_Hz, Fault_Type, Defect_Size_in)
-  let detectedSamplingRate = null;
-  let detectedFaultType = null;
-  let detectedDefectSize = null;
+  // ─── Input Type Detection: Raw Vibration vs Frequency Spectrum ─────────────
+  let isFrequencySpectrum = false;
+  let freqCol = null;
+  let ampCol = null;
 
-  headers.forEach((h, idx) => {
-    const hLower = h.toLowerCase().trim();
-    if (hLower.includes('sampling_rate')) {
-      const firstVal = columnData[idx]?.[0];
-      if (firstVal && !isNaN(firstVal) && firstVal > 0) {
-        detectedSamplingRate = Math.round(firstVal);
+  if (numericColumns.length >= 2) {
+    // 1. Check for monotonic frequency column
+    for (let i = 0; i < numericColumns.length; i++) {
+      const col = numericColumns[i];
+      const name = col.columnName.toLowerCase().trim();
+      const data = col.data;
+      if (data.length >= 16) {
+        const isMonotonic = data[0] >= 0 && data.every((val, idx) => idx === 0 || val > data[idx - 1]);
+        if (isMonotonic && (name.includes('freq') || name.includes('hz') || i === 0)) {
+          freqCol = col;
+          break;
+        }
       }
     }
-    if (hLower.includes('fault_type') || hLower === 'fault' || hLower === 'label') {
-      for (let i = dataStartIndex; i < Math.min(lines.length, 20); i++) {
-        const cells = lines[i].split(delimiter);
-        if (cells[idx]) {
-          const val = cells[idx].trim().replace(/^["']|["']$/g, '');
-          if (val && isNaN(Number(val))) {
-            detectedFaultType = val;
+
+    // 2. If frequency column found, find non-negative amplitude column
+    if (freqCol) {
+      for (let i = 0; i < numericColumns.length; i++) {
+        if (numericColumns[i].columnIndex === freqCol.columnIndex) continue;
+        const col = numericColumns[i];
+        if (col.data.length === freqCol.data.length) {
+          const allNonNeg = col.data.every(val => val >= -1e-6);
+          const name = col.columnName.toLowerCase().trim();
+          if (allNonNeg && (name.includes('amp') || name.includes('mag') || name.includes('peak') || name.includes('g') || numericColumns.length === 2)) {
+            ampCol = col;
+            isFrequencySpectrum = true;
             break;
           }
         }
       }
     }
-    if (hLower.includes('defect_size') || hLower.includes('fault_size')) {
-      const firstVal = columnData[idx]?.[0];
-      if (firstVal && !isNaN(firstVal)) {
-        detectedDefectSize = firstVal;
-      }
+  }
+
+  if (isFrequencySpectrum && freqCol && ampCol) {
+    const freqs = freqCol.data;
+    const amps = ampCol.data;
+    const minFreq = freqs[0];
+    const maxFreq = freqs[freqs.length - 1];
+    const df = freqs.length > 1 ? (freqs[1] - freqs[0]) : 1.0;
+
+    // Unit detection
+    let unit = 'g, peak';
+    const ampName = ampCol.columnName.toLowerCase();
+    if (ampName.includes('psd') || ampName.includes('g^2') || ampName.includes('g2')) {
+      throw new Error(
+        'Power Spectral Density (PSD / g²/Hz) is not currently supported. ' +
+        'Please export linear acceleration amplitude spectrum (g, peak or g, RMS).'
+      );
     }
-  });
+    if (ampName.includes('db')) {
+      throw new Error('Logarithmic (dB) scale spectrum is not supported. Please export linear amplitude spectrum.');
+    }
+    if (ampName.includes('rms')) unit = 'g, rms';
+    else if (ampName.includes('m/s')) unit = 'm/s²';
+
+    // Downsampled spectrum for UI chart rendering
+    const step = Math.max(1, Math.floor(freqs.length / 128));
+    const chartSpectrum = [];
+    for (let k = 0; k < freqs.length; k += step) {
+      chartSpectrum.push({
+        freqIndex: k,
+        freqHz: Math.round(freqs[k] * 10) / 10,
+        freq: `${Math.round(freqs[k])} Hz`,
+        amplitude: parseFloat(amps[k].toFixed(6))
+      });
+    }
+
+    return {
+      fileType: 'frequency_spectrum',
+      input_type: 'frequency_spectrum',
+      frequencies: freqs,
+      amplitudes: amps,
+      spectrumData: chartSpectrum,
+      binCount: freqs.length,
+      minFreqHz: minFreq,
+      maxFreqHz: maxFreq,
+      frequencyStepHz: df,
+      signalUnit: unit,
+      columns: numericColumns,
+      defaultColumn: ampCol,
+      defaultColumnIndex: ampCol.columnIndex,
+      totalDataPoints: amps.length,
+      columnCount: numericColumns.length,
+      totalRows: lines.length - dataStartIndex,
+      detectedSamplingRate: Math.round(maxFreq * 2),
+      detectedFaultType,
+      detectedDefectSize,
+      hasMultiColumnWarning: false
+    };
+  }
 
   return {
+    fileType: 'raw_vibration',
+    input_type: 'raw_vibration',
     columns: numericColumns,
     defaultColumn: numericColumns[defaultColIndex],
     defaultColumnIndex: defaultColIndex,

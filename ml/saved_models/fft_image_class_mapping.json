@@ -1,0 +1,26 @@
+{
+  "0": {
+    "class_name": "Healthy",
+    "bearing_status": "Healthy",
+    "fault_type": "Normal",
+    "severity": "Healthy"
+  },
+  "1": {
+    "class_name": "Inner Race Fault",
+    "bearing_status": "Fault Detected",
+    "fault_type": "Inner Race",
+    "severity": "Fault Detected"
+  },
+  "2": {
+    "class_name": "Outer Race Fault",
+    "bearing_status": "Fault Detected",
+    "fault_type": "Outer Race",
+    "severity": "Fault Detected"
+  },
+  "3": {
+    "class_name": "Ball Fault",
+    "bearing_status": "Fault Detected",
+    "fault_type": "Ball",
+    "severity": "Fault Detected"
+  }
+}

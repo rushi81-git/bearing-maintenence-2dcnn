@@ -17,6 +17,7 @@
 8. [Models Tested & Benchmark Results](#8-models-tested--benchmark-results)
 9. [1D Deep Convolutional Neural Network](#9-1d-deep-convolutional-neural-network)
 10. [Confusion Matrix Analysis](#10-confusion-matrix-analysis)
+10b. [2D CNN FFT Graph Classifier (Experimental)](#10b-2d-cnn-fft-graph-classifier-experimental) — [Detailed Guide](file:///c:/Users/Rushikesh/OneDrive/문서/Desktop/minor/workshop-maintenance-system/README_FFT_IMAGE.md)
 11. [How to Train and Run](#11-how-to-train-and-run)
 12. [Inference API & Real-Time Sensor Integration](#12-inference-api--real-time-sensor-integration)
 13. [Old Project vs. Upgraded Project Comparison](#13-old-project-vs-upgraded-project-comparison)
@@ -207,6 +208,26 @@ Confusion matrices and training curves are saved in:
 
 ---
 
+## 10b. 2D CNN FFT Graph Classifier (Experimental)
+
+> Full documentation, architectural details, and root-cause analysis are provided in:  
+> 📖 [README_FFT_IMAGE.md](file:///c:/Users/Rushikesh/OneDrive/문서/Desktop/minor/workshop-maintenance-system/README_FFT_IMAGE.md)
+
+In addition to the primary 1D time-domain CNN and classical ML pipeline, the system includes a dedicated **2D CNN vision classifier** that accepts **FFT frequency line graph images** (e.g. from handheld vibration analyzers).
+
+### Summary Specifications:
+- **Input Format**: 224×224 RGB line graph (0–6,000 Hz, linear amplitude in $g$).
+- **Taxonomy**: 4 Canonical classes (`Healthy`, `Inner Race Fault`, `Outer Race Fault`, `Ball Fault`).
+- **Architecture**: 4 Conv2D + MaxPool blocks (16 → 32 → 64 → 128 filters) + GlobalAveragePooling2D + Dense(64) + Dense(4, Softmax) (~138k parameters).
+- **Class Balancing**: Balanced inverse class weights (1:3 Healthy-to-fault ratio).
+- **Held-Out Test Accuracy**: **86.74%** (Macro F1: **0.8826**).
+  - `Healthy`: **100.0%** (92/92, F1: 0.99)
+  - `Inner Race Fault`: **98.9%** (273/276, F1: 0.97)
+  - `Ball Fault`: **96.7%** (267/276, F1: 0.83)
+  - `Outer Race Fault`: **59.4%** (164/276, F1: 0.74 — `OR_014` low-energy defect envelope overlaps ball modulation).
+
+---
+
 ## 11. How to Train and Run
 
 ### Step 1 — Python ML Environment
@@ -220,8 +241,14 @@ pip install -r requirements.txt
 # Preprocess and train classical ML models (SVM, RF, Gradient Boosting)
 python ml/training/train_ml.py
 
-# Train 1D Deep CNN
+# Train 1D Deep CNN (Raw vibration waveform)
 python ml/training/train_cnn.py
+
+# Preprocess FFT graph images (Generates 224x224 cached dataset)
+python ml/preprocessing/preprocess_fft_images.py
+
+# Train 2D CNN (FFT graph line plots)
+python ml/training/train_fft_cnn.py
 ```
 
 ### Step 3 — Start the Python FastAPI ML Server (Port 8000)

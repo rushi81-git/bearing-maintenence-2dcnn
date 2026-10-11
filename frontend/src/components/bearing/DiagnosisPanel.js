@@ -13,7 +13,8 @@ import {
   Cpu,
   Gauge,
   CalendarPlus,
-  Info
+  Info,
+  Image as ImageIcon
 } from 'lucide-react';
 import { StatusBadge } from '../StatusBadge';
 import { ISOSeverityGauge } from './ISOSeverityGauge';
@@ -300,6 +301,95 @@ export function DiagnosisPanel({
           </div>
         </div>
 
+        {/* ── Verified Model Input Image (FFT 2D CNN Verification) ── */}
+        {diagnosisResult.processed_image_base64 && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: '16px 20px',
+              background: 'var(--bg-surface-raised)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ImageIcon size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Verified 2D CNN Model Input Image (224×224 RGB)
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--accent-primary)',
+                  background: 'var(--accent-subtle)',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-full)'
+                }}
+              >
+                Exact Input Received by Neural Network
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <img
+                src={diagnosisResult.processed_image_base64}
+                alt="224x224 Processed Input Received by 2D CNN"
+                style={{
+                  width: 120,
+                  height: 120,
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-strong)',
+                  background: '#ffffff',
+                  boxShadow: 'var(--shadow-xs)'
+                }}
+              />
+              <div style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                <div><strong>Resolution:</strong> 224 × 224 pixels (3 color channels RGB)</div>
+                <div><strong>Diagnostic Span:</strong> 0 to 6,000 Hz (CWRU bearing defect harmonic range)</div>
+                <div><strong>Scaling & Window:</strong> Linear acceleration (g), Hann periodic window</div>
+                <div style={{ fontSize: 10, color: 'var(--status-mild)', marginTop: 4 }}>
+                  ⚠️ <em>Notice: Classification assesses current fault condition only, not remaining useful life (RUL). Softmax activations are closed-set scores.</em>
+                </div>
+              </div>
+            </div>
+
+            {/* 4-Class Softmax Score Grid */}
+            {diagnosisResult.class_scores && (
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 10, marginTop: 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8, textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>
+                  4-Class Neural Activation Breakdown:
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                  {Object.entries(diagnosisResult.class_scores).map(([cName, cScore]) => {
+                    const isWinner = cName === diagnosisResult.predicted_class;
+                    return (
+                      <div
+                        key={cName}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          background: isWinner ? 'var(--accent-subtle)' : 'var(--bg-surface)',
+                          border: `1px solid ${isWinner ? 'var(--accent-primary)' : 'var(--border-subtle)'}`
+                        }}
+                      >
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>{cName}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: isWinner ? 'var(--accent-primary)' : 'var(--text-primary)', marginTop: 2 }}>
+                          {(cScore * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Actionable Maintenance Recommendation Box & Work Order CTA ── */}
         <div

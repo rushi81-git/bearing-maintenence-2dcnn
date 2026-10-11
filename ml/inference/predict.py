@@ -13,8 +13,10 @@ Features:
 """
 
 import os
+import io
 import sys
 import json
+import base64
 import pickle
 import warnings
 import numpy as np
@@ -32,7 +34,18 @@ from preprocessing.preprocess import (
     CANONICAL_FEATURES,
     normalize_signals_for_cnn,
     FAULT_METADATA,
-    WINDOW_LENGTH
+    WINDOW_LENGTH,
+    compute_fft_spectrum,
+    extract_spectral_features,
+    validate_spectrum_input,
+    transform_spectrum_to_canonical,
+    CANONICAL_SPECTRUM_BINS,
+    CANONICAL_SPECTRUM_MAX_FREQ,
+    CANONICAL_SPECTRAL_FEATURES
+)
+from preprocessing.preprocess_fft_images import (
+    FOUR_CLASSES,
+    SAMPLING_RATE_HZ as FFT_SAMPLING_RATE_HZ
 )
 
 # ─── Rule-Based Maintenance Recommendations ───────────────────────────────────
@@ -121,12 +134,50 @@ def load_inference_artifacts():
         with open(rf_path, 'rb') as f:
             classical_model = pickle.load(f)
 
-    # 7. Model Metadata
+    # 7. Spectrum Classifier Model
+    spectrum_model = None
+    spec_path = os.path.join(MODELS_DIR, 'spectrum_classifier_v1.joblib')
+    if os.path.exists(spec_path):
+        with open(spec_path, 'rb') as f:
+            spectrum_model = pickle.load(f)
+
+    # 8. Spectrum Config
+    spectrum_config = {}
+    spec_cfg_path = os.path.join(MODELS_DIR, 'spectrum_config.json')
+    if os.path.exists(spec_cfg_path):
+        with open(spec_cfg_path, 'r') as f:
+            spectrum_config = json.load(f)
+
+    # 9. Model Metadata
     metadata = {}
     meta_path = os.path.join(MODELS_DIR, 'model_metadata_v1.json')
     if os.path.exists(meta_path):
         with open(meta_path, 'r') as f:
             metadata = json.load(f)
+
+    # 10. 2D CNN FFT Graph Image Model
+    fft_2d_cnn_model = None
+    fft_cnn_path = os.path.join(MODELS_DIR, 'cnn_fft_2d_model.keras')
+    if os.path.exists(fft_cnn_path):
+        try:
+            import tensorflow as tf
+            fft_2d_cnn_model = tf.keras.models.load_model(fft_cnn_path)
+        except Exception as e:
+            print(f"[Warning] Failed loading 2D CNN FFT model: {e}")
+
+    # 11. FFT Image Config
+    fft_image_config = {}
+    fft_cfg_path = os.path.join(MODELS_DIR, 'fft_image_config.json')
+    if os.path.exists(fft_cfg_path):
+        with open(fft_cfg_path, 'r') as f:
+            fft_image_config = json.load(f)
+
+    # 12. FFT Image Class Mapping
+    fft_image_class_mapping = {}
+    fft_map_path = os.path.join(MODELS_DIR, 'fft_image_class_mapping.json')
+    if os.path.exists(fft_map_path):
+        with open(fft_map_path, 'r') as f:
+            fft_image_class_mapping = json.load(f)
 
     _cached_artifacts = {
         'config': config,
@@ -135,7 +186,12 @@ def load_inference_artifacts():
         'label_encoder': label_encoder,
         'cnn_model': cnn_model,
         'classical_model': classical_model,
-        'metadata': metadata
+        'spectrum_model': spectrum_model,
+        'spectrum_config': spectrum_config,
+        'metadata': metadata,
+        'fft_2d_cnn_model': fft_2d_cnn_model,
+        'fft_image_config': fft_image_config,
+        'fft_image_class_mapping': fft_image_class_mapping
     }
     return _cached_artifacts
 
@@ -363,6 +419,14 @@ def analyze_vibration_signal(signal: list, sampling_rate_hz: int = 48000, signal
     if not np.all(np.isfinite(arr)):
         raise ValueError("Signal contains non-finite values (NaN or Inf).")
 
+    # Safeguard against spectrum amplitudes passed as raw waveforms
+    if np.all(arr >= -1e-7):
+        raise ValueError(
+            "Invalid vibration signal: all samples are non-negative. "
+            "A frequency spectrum amplitude column was detected where a raw AC vibration waveform was expected. "
+            "Do not pass spectrum amplitude columns to raw waveform models; provide both frequencies and amplitudes as a frequency spectrum."
+        )
+
     # Partition into consecutive 1024-sample windows
     n_windows = n_samples // WINDOW_LENGTH
     remainder = n_samples % WINDOW_LENGTH
@@ -426,8 +490,10 @@ def analyze_vibration_signal(signal: list, sampling_rate_hz: int = 48000, signal
     # Overall representative features from first window
     first_window_res = predict_single_window(arr[:WINDOW_LENGTH], model_mode=model_mode, use_classical_ml=use_classical_ml)
     first_window_features = first_window_res['features']
+    selected_model_name = dominant_auto_fit.get('selected_model_name', '1D Deep CNN') if dominant_auto_fit else '1D Deep CNN'
 
     return {
+        'input_type': 'raw_vibration',
         'bearing_status': dominant_meta['bearing_status'],
         'predicted_class': dominant_class,
         'fault_type': dominant_meta['fault_type'],
@@ -445,13 +511,415 @@ def analyze_vibration_signal(signal: list, sampling_rate_hz: int = 48000, signal
         'dominant_window_count': dominant_count,
         'prediction_distribution': distribution,
         'window_predictions': window_results,
-        'model_version': dominant_auto_fit.get('selected_model_name', '1D Deep CNN') if dominant_auto_fit else '1D Deep CNN',
+        'model_used': selected_model_name,
+        'model_version': selected_model_name,
         'auto_fit_details': dominant_auto_fit,
         'recommendation': rec_info['action'],
         'urgency': rec_info['urgency'],
         'check_interval': rec_info['interval'],
         'disclaimer': DISCLAIMER
     }
+
+
+def diagnose_spectrum(
+    frequencies: list,
+    amplitudes: list,
+    unit: str = "g, peak",
+    spectrum_type: str = "amplitude",
+    source_filename: str = None
+) -> dict:
+    """
+    Inference routine for frequency–amplitude spectrum files.
+    Validates input spectrum, transforms to canonical 512-bin grid + 14 spectral features,
+    and runs the dedicated spectrum classifier (Random Forest).
+    """
+    artifacts = load_inference_artifacts()
+    spectrum_model = artifacts.get('spectrum_model')
+    if spectrum_model is None:
+        raise RuntimeError("Dedicated spectrum classifier model is not loaded. Train spectrum model first.")
+
+    label_encoder = artifacts['label_encoder']
+    classes = list(label_encoder.classes_)
+
+    # Strict Validation
+    validation_meta = validate_spectrum_input(frequencies, amplitudes, unit=unit, spectrum_type=spectrum_type)
+
+    freqs = np.asarray(frequencies, dtype=np.float64)
+    amps = np.asarray(amplitudes, dtype=np.float64)
+
+    # Transform to canonical feature vector (526-dim: 512 bins + 14 spectral features)
+    features_vec = transform_spectrum_to_canonical(freqs, amps).reshape(1, -1)
+    spectral_features_dict = extract_spectral_features(freqs, amps)
+
+    probabilities = spectrum_model.predict_proba(features_vec)[0]
+    pred_idx = int(np.argmax(probabilities))
+    pred_class = classes[pred_idx]
+    pred_prob = float(probabilities[pred_idx])
+
+    meta = FAULT_METADATA.get(pred_class, {
+        'fault_type': 'Unknown', 'fault_size_inches': 0.0, 'fault_size_mm': 0.0,
+        'severity': 'Unknown', 'bearing_status': 'Unknown'
+    })
+
+    sorted_indices = np.argsort(probabilities)[::-1]
+    top_predictions = [
+        {
+            'class': classes[idx],
+            'probability': round(float(probabilities[idx]), 4),
+            'fault_type': FAULT_METADATA.get(classes[idx], {}).get('fault_type', 'Unknown'),
+            'severity': FAULT_METADATA.get(classes[idx], {}).get('severity', 'Unknown')
+        }
+        for idx in sorted_indices[:4]
+    ]
+
+    rec_info = RECOMMENDATIONS.get(meta['severity'], RECOMMENDATIONS['Normal'])
+
+    # Format-specific disclaimer
+    is_synthetic = bool(source_filename and ("synthetic" in source_filename.lower() or "2049" in source_filename))
+    if is_synthetic:
+        disclaimer_text = (
+            "SYNTHETIC VALIDATION DATASET: Analysis performed on a synthetic baseline spectrum "
+            "for parser validation and pipeline consistency. Severity categories reflect experimental "
+            "seeded defect dimensions. Do not rely on synthetic spectra for operational field decisions."
+        )
+    else:
+        disclaimer_text = (
+            "SPECTRUM INFERENCE OUTPUT: Evaluated via dedicated Random Forest Spectrum Classifier "
+            "(512 canonical bins + 14 spectral features, evaluated at 98.37% held-out test accuracy). "
+            "External analyzer exports should be calibrated to verified machine benchmarks."
+        )
+
+    return {
+        'input_type': 'frequency_spectrum',
+        'bearing_status': meta['bearing_status'],
+        'predicted_class': pred_class,
+        'fault_type': meta['fault_type'],
+        'fault_size_inches': meta['fault_size_inches'],
+        'fault_size_mm': meta['fault_size_mm'],
+        'severity': meta['severity'],
+        'prediction_probability': round(pred_prob, 4),
+        'windows_analyzed': 1,
+        'total_samples': len(freqs),
+        'discarded_trailing_samples': 0,
+        'sampling_rate_hz': int(round(validation_meta['max_freq_hz'] * 2.0)),
+        'signal_unit': unit,
+        'source_type': 'spectrum_analyzer',
+        'source_filename': source_filename or 'spectrum_export',
+        'features': {k: round(float(v), 5) for k, v in spectral_features_dict.items()},
+        'dominant_window_count': 1,
+        'prediction_distribution': [
+            {
+                'class': pred_class,
+                'count': 1,
+                'percentage': 100.0,
+                'avg_probability': round(pred_prob, 4),
+                'fault_type': meta['fault_type'],
+                'severity': meta['severity']
+            }
+        ],
+        'window_predictions': [],
+        'model_used': 'Spectrum Classifier (Random Forest)',
+        'model_version': 'spectrum_classifier_v1 (Random Forest)',
+        'auto_fit_details': {
+            'selection_mode': 'spectrum_pipeline',
+            'selected_engine': 'spectrum_classifier',
+            'selected_model_name': 'Spectrum Classifier (Random Forest)',
+            'selection_rationale': (
+                f"Input identified as frequency spectrum ({len(freqs)} bins, "
+                f"0–{validation_meta['max_freq_hz']:.0f} Hz). Routed to dedicated spectrum classifier."
+            ),
+            'fit_confidence': round(pred_prob, 4),
+            'spectrum_validation': validation_meta
+        },
+        'top_predictions': top_predictions,
+        'recommendation': rec_info['action'],
+        'urgency': rec_info['urgency'],
+        'check_interval': rec_info['interval'],
+        'disclaimer': disclaimer_text
+    }
+
+
+def preprocess_fft_image(image_bytes: bytes, crop_box: list = None) -> tuple:
+    """
+    Validates, crops, aspect-ratio preserves, pads to 224x224 RGB,
+    and returns (image_array_uint8, base64_data_url).
+    """
+    if not image_bytes or len(image_bytes) == 0:
+        raise ValueError("Image data is empty. Please upload a valid PNG or JPG vibration graph image.")
+
+    try:
+        from PIL import Image
+        bio = io.BytesIO(image_bytes)
+        img = Image.open(bio)
+        img.verify()  # verify format/integrity
+        bio.seek(0)
+        img = Image.open(bio).convert('RGB')
+    except Exception as e:
+        raise ValueError(
+            f"Invalid or corrupted image file ({str(e)}). "
+            "Please upload a valid PNG or JPG/JPEG frequency spectrum graph image."
+        )
+
+    w, h = img.size
+    if w < 32 or h < 32:
+        raise ValueError(f"Image dimensions ({w}x{h}) are too small for FFT graph analysis (minimum 32x32 required).")
+
+    # 1. Plot Area Extraction: Manual Crop or Intelligent Auto-Detection of Plot Frame
+    if crop_box and len(crop_box) == 4:
+        try:
+            x1, y1, x2, y2 = [int(v) for v in crop_box]
+            if x2 > x1 and y2 > y1 and x1 >= 0 and y1 >= 0 and x2 <= w and y2 <= h:
+                img = img.crop((x1, y1, x2, y2))
+                w, h = img.size
+        except Exception as e:
+            raise ValueError(f"Invalid crop box parameters {crop_box}: {e}")
+    else:
+        # Automatic plot area detection (removes external axes, tick labels, titles)
+        try:
+            gray = np.array(img.convert('L'))
+            dark_mask = gray < 120
+            row_dark = np.sum(dark_mask, axis=1)
+            col_dark = np.sum(dark_mask, axis=0)
+
+            # Spines in matplotlib / analyzer graphs span >= 30% of the dimension
+            horiz_spines = np.where(row_dark >= 0.30 * w)[0]
+            vert_spines = np.where(col_dark >= 0.30 * h)[0]
+
+            if len(horiz_spines) >= 2 and len(vert_spines) >= 2:
+                top, bottom = int(horiz_spines[0]), int(horiz_spines[-1])
+                left, right = int(vert_spines[0]), int(vert_spines[-1])
+                box_w, box_h = right - left, bottom - top
+
+                # Only crop if there are non-trivial margins (title, axis labels)
+                has_margins = (left > 15 or top > 15 or (w - right) > 15 or (h - bottom) > 15)
+                if has_margins and box_w >= 0.30 * w and box_h >= 0.30 * h and box_w > 50 and box_h > 50:
+                    crop_l = min(left + 1, right - 1)
+                    crop_t = min(top + 1, bottom - 1)
+                    crop_r = max(right - 1, crop_l + 1)
+                    crop_b = max(bottom - 1, crop_t + 1)
+                    img = img.crop((crop_l, crop_t, crop_r, crop_b))
+                    w, h = img.size
+        except Exception:
+            pass  # Fall back to full image if auto-detection fails
+
+    resample_filter = getattr(Image, 'Resampling', Image).LANCZOS
+
+    # 2. Resize to 224x224
+    # The training pipeline rendered line graphs edge-to-edge on a square 224x224 canvas.
+    # When given a cropped plot area (0-6000 Hz horizontally, 0-max vertically), resizing
+    # directly to 224x224 aligns horizontal pixel position with frequency bins.
+    aspect = w / float(h)
+    if 0.7 <= aspect <= 2.8:
+        # Standard rectangular/square plot display: stretch directly to 224x224 to match training space
+        resized = img.resize((224, 224), resample_filter)
+        canvas = resized
+    else:
+        # Extreme aspect ratio: preserve aspect ratio with uniform letterbox padding
+        scale = 224.0 / max(w, h)
+        new_w = max(1, int(round(w * scale)))
+        new_h = max(1, int(round(h * scale)))
+        resized = img.resize((new_w, new_h), resample_filter)
+        canvas = Image.new('RGB', (224, 224), (255, 255, 255))
+        offset = ((224 - new_w) // 2, (224 - new_h) // 2)
+        canvas.paste(resized, offset)
+
+    arr = np.array(canvas, dtype=np.uint8)
+
+    # Sanity guard: reject solid / blank images
+    if np.std(arr) < 0.5:
+        raise ValueError(
+            "Uploaded image appears to be blank or solid color. "
+            "Please provide a valid FFT frequency-versus-amplitude graph image."
+        )
+
+    # Generate base64 thumbnail for user confirmation
+    buf = io.BytesIO()
+    canvas.save(buf, format='PNG')
+    b64_str = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    return arr, b64_str
+
+
+def diagnose_fft_image(
+    image_bytes: bytes,
+    crop_box: list = None,
+    source_filename: str = None
+) -> dict:
+    """
+    Classifies 4 bearing conditions from an FFT frequency-versus-amplitude line graph image
+    using the dedicated 2D CNN model:
+      - Healthy
+      - Inner Race Fault
+      - Outer Race Fault
+      - Ball Fault
+    """
+    artifacts = load_inference_artifacts()
+    model = artifacts.get('fft_2d_cnn_model')
+    if model is None:
+        raise RuntimeError("2D CNN FFT Image model is not loaded. Train the model using ml/training/train_fft_cnn.py.")
+
+    img_arr, b64_thumb = preprocess_fft_image(image_bytes, crop_box=crop_box)
+
+    # Forward pass: shape (1, 224, 224, 3)
+    batch = np.expand_dims(img_arr, axis=0)
+    probs = model.predict(batch, verbose=0)[0]
+
+    classes = FOUR_CLASSES
+    best_idx = int(np.argmax(probs))
+    best_class = classes[best_idx]
+    best_prob = float(probs[best_idx])
+
+    is_healthy = best_class == 'Healthy'
+    bearing_status = 'Healthy' if is_healthy else 'Fault Detected'
+    fault_type = 'Normal' if is_healthy else best_class.replace(' Fault', '')
+    severity = 'Healthy' if is_healthy else ('Severe' if best_prob > 0.85 else 'Moderate')
+
+    class_scores = {classes[i]: round(float(probs[i]), 4) for i in range(len(classes))}
+
+    # Chart probabilities formatted for UI bar chart
+    chart_colors = {
+        'Healthy': '#10b981',
+        'Inner Race Fault': '#6366f1',
+        'Outer Race Fault': '#ec4899',
+        'Ball Fault': '#f59e0b'
+    }
+    probabilities = [
+        {
+            'name': cls_name,
+            'value': round(float(probs[i]) * 100.0, 1),
+            'fill': chart_colors.get(cls_name, '#6366f1')
+        }
+        for i, cls_name in enumerate(classes)
+    ]
+
+    rec = RECOMMENDATIONS.get('Normal' if is_healthy else 'Moderate')
+
+    disclaimer_text = (
+        "FFT GRAPH IMAGE INFERENCE (EXPERIMENTAL): Evaluated via dedicated 2D CNN trained on CWRU benchmark spectra. "
+        "Softmax probabilities reflect internal model activations and are NOT guaranteed operational reliability estimates. "
+        "Predictions assess CURRENT bearing condition only (presence and location of localized defect) and do NOT "
+        "predict Remaining Useful Life (RUL). Analyzer screenshots must provide 0-6000 Hz span and linear amplitude."
+    )
+
+    return {
+        'input_type': 'fft_graph_image',
+        'model_used': '2D CNN FFT Graph Classifier (Experimental)',
+        'model_version': 'cnn_fft_2d_v1',
+        'bearing_status': bearing_status,
+        'predicted_class': best_class,
+        'fault_type': fault_type,
+        'fault_size_inches': 0.0,
+        'fault_size_mm': 0.0,
+        'severity': severity,
+        'prediction_probability': round(best_prob, 4),
+        'class_scores': class_scores,
+        'probabilities': probabilities,
+        'processed_image_base64': b64_thumb,
+        'windows_analyzed': 1,
+        'total_samples': 224 * 224,
+        'discarded_trailing_samples': 0,
+        'sampling_rate_hz': FFT_SAMPLING_RATE_HZ,
+        'signal_unit': 'g (linear peak vs Hz)',
+        'source_type': 'fft_graph_image',
+        'source_filename': source_filename or 'fft_graph_upload.png',
+        'features': {},
+        'dominant_window_count': 1,
+        'prediction_distribution': [
+            {
+                'class': best_class,
+                'count': 1,
+                'percentage': 100.0,
+                'avg_probability': round(best_prob, 4),
+                'fault_type': fault_type,
+                'severity': severity
+            }
+        ],
+        'window_predictions': [],
+        'recommendation': rec['action'],
+        'urgency': rec['urgency'],
+        'check_interval': rec['interval'],
+        'disclaimer': disclaimer_text,
+        'analyzer_requirements': {
+            'supported_frequency_range': '0 to 6,000 Hz',
+            'units': 'g (linear acceleration peak vs Hz)',
+            'axis_scaling': 'Linear (0 to ~1.5 g full scale)',
+            'required_settings': 'Linear average / Peak-Hold, Hanning window'
+        }
+    }
+
+
+def detect_and_route_input(
+    signal: list = None,
+    frequencies: list = None,
+    amplitudes: list = None,
+    image_bytes: bytes = None,
+    image_base64: str = None,
+    crop_box: list = None,
+    input_type: str = "auto",
+    sampling_rate_hz: int = 48000,
+    signal_unit: str = "g",
+    source_type: str = "csv",
+    source_filename: str = None,
+    model_mode: str = "auto",
+    use_classical_ml: bool = False
+) -> dict:
+    """
+    Intelligent routing boundary:
+      - If input_type is 'fft_graph_image' or image data is provided:
+        routes to diagnose_fft_image.
+      - If input_type is 'frequency_spectrum' or frequencies & amplitudes provided:
+        routes to diagnose_spectrum.
+      - If input_type is 'raw_vibration' or signal is provided:
+        routes to analyze_vibration_signal.
+      - Never passes spectrum bins to waveform models or images to tabular models.
+    """
+    # 1. FFT Graph Image Path
+    if input_type == 'fft_graph_image' or image_bytes is not None or image_base64 is not None:
+        if image_bytes is None and image_base64 is not None:
+            raw_b64 = image_base64
+            if ',' in raw_b64:
+                raw_b64 = raw_b64.split(',', 1)[1]
+            try:
+                image_bytes = base64.b64decode(raw_b64)
+            except Exception as e:
+                raise ValueError(f"Failed to decode base64 image data: {e}")
+        if image_bytes is None:
+            raise ValueError("FFT Graph Image prediction requires valid image data.")
+        return diagnose_fft_image(
+            image_bytes=image_bytes,
+            crop_box=crop_box,
+            source_filename=source_filename
+        )
+
+    # 2. Frequency Spectrum Data Path
+    is_spectrum = (
+        input_type == "frequency_spectrum" or
+        (frequencies is not None and amplitudes is not None and len(frequencies) > 0 and len(amplitudes) > 0)
+    )
+
+    if is_spectrum:
+        if frequencies is None or amplitudes is None:
+            raise ValueError("Frequency spectrum input requires both 'frequencies' and 'amplitudes' arrays.")
+        return diagnose_spectrum(
+            frequencies=frequencies,
+            amplitudes=amplitudes,
+            unit=signal_unit or "g, peak",
+            source_filename=source_filename
+        )
+
+    # 3. Raw Vibration Waveform Path
+    if signal is None or len(signal) == 0:
+        raise ValueError("Missing input: either raw 'signal', 'frequencies' & 'amplitudes', or an FFT graph image must be provided.")
+
+    return analyze_vibration_signal(
+        signal=signal,
+        sampling_rate_hz=sampling_rate_hz or 48000,
+        signal_unit=signal_unit or "g",
+        source_type=source_type or "csv",
+        model_mode=model_mode or "auto",
+        use_classical_ml=use_classical_ml
+    )
+
 
 
 def get_curated_demo_samples():
