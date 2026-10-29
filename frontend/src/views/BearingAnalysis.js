@@ -78,7 +78,7 @@ export function BearingAnalysis({
     reader.onload = (evt) => {
       try {
         const text = evt.target?.result;
-        const parsed = parseVibrationCSV(text);
+        const parsed = parseVibrationCSV(text, filename);
 
         setParsedCsv(parsed);
         setSourceFilename(filename);

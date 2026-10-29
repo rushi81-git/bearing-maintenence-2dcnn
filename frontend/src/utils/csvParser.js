@@ -37,7 +37,7 @@ function parseCell(cell) {
   return NaN;
 }
 
-export function parseVibrationCSV(text) {
+export function parseVibrationCSV(text, filename = '') {
   if (!text || typeof text !== 'string') {
     throw new Error('Empty or invalid CSV file content.');
   }
@@ -176,6 +176,45 @@ export function parseVibrationCSV(text) {
     }
   });
 
+  // Check if CSV contains metadata columns (e.g. Sampling_Rate_Hz, Fault_Type, Defect_Size_in)
+  let detectedSamplingRate = null;
+  let detectedFaultType = null;
+  let detectedDefectSize = null;
+
+  headers.forEach((h, idx) => {
+    const hLower = h.toLowerCase().trim();
+    if (hLower.includes('sampling_rate')) {
+      const firstVal = columnData[idx]?.[0];
+      if (firstVal && !isNaN(firstVal) && firstVal > 0) {
+        detectedSamplingRate = Math.round(firstVal);
+      }
+    }
+    if (hLower.includes('fault_type') || hLower === 'fault' || hLower === 'label') {
+      for (let i = dataStartIndex; i < Math.min(lines.length, 20); i++) {
+        const cells = lines[i].split(delimiter);
+        if (cells[idx]) {
+          const val = cells[idx].trim().replace(/^["']|["']$/g, '');
+          if (val && isNaN(Number(val))) {
+            detectedFaultType = val;
+            break;
+          }
+        }
+      }
+    }
+    if (hLower.includes('defect_size') || hLower.includes('fault_size')) {
+      const firstVal = columnData[idx]?.[0];
+      if (firstVal && !isNaN(firstVal)) {
+        detectedDefectSize = firstVal;
+      }
+    }
+  });
+
+  if (!detectedSamplingRate && filename) {
+    const fn = String(filename).toLowerCase();
+    if (fn.includes('48k') || fn.includes('48000')) detectedSamplingRate = 48000;
+    else if (fn.includes('12k') || fn.includes('12000')) detectedSamplingRate = 12000;
+  }
+
   // ─── Input Type Detection: Raw Vibration vs Frequency Spectrum ─────────────
   let isFrequencySpectrum = false;
   let freqCol = null;
@@ -312,7 +351,7 @@ export function parseVibrationExcel(buffer, filename = 'data.xlsx') {
     if (!csvText || csvText.trim().length === 0) {
       throw new Error(`The first sheet "${firstSheetName}" appears to be empty.`);
     }
-    return parseVibrationCSV(csvText);
+    return parseVibrationCSV(csvText, filename);
   } catch (err) {
     throw new Error(`Excel parse error (${filename}): ${err.message}`);
   }
